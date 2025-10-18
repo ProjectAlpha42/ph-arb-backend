@@ -1,40 +1,53 @@
-from flask import Flask, request, jsonify
-import os
-import json
+from flask import Flask, jsonify, request
+import os, json
 from datetime import datetime
 
 app = Flask(__name__)
 
-# Secret API key to verify uploads (you’ll add this as an environment variable later)
-SECRET_KEY = os.getenv("UPLOAD_KEY", "changeme")
-
-# Folder to store uploaded data
 DATA_DIR = "data"
+FREE_FILE = os.path.join(DATA_DIR, "free_data.json")
+PRO_FILE = os.path.join(DATA_DIR, "pro_data.json")
+
+API_KEY = os.getenv("UPLOAD_KEY", "changeme")
+
 os.makedirs(DATA_DIR, exist_ok=True)
 
-@app.route("/", methods=["GET"])
+@app.route("/")
 def home():
-    return jsonify({"status": "online", "time": datetime.utcnow().isoformat()})
+    return jsonify({
+        "status": "ok",
+        "time": datetime.utcnow().isoformat() + "Z",
+        "message": "PH Arbitrage API live"
+    })
 
 @app.route("/upload", methods=["POST"])
 def upload():
     key = request.headers.get("X-API-Key")
-    if key != SECRET_KEY:
+    if key != API_KEY:
         return jsonify({"error": "unauthorized"}), 403
 
-    content = request.get_json(force=True)
-    filename = content.get("filename")
+    content = request.get_json()
+    fname = content.get("filename")
     data = content.get("data")
 
-    if not filename or data is None:
-        return jsonify({"error": "missing fields"}), 400
+    if not fname or not data:
+        return jsonify({"error": "invalid"}), 400
 
-    # Save file to /data
-    path = os.path.join(DATA_DIR, filename)
-    with open(path, "w", encoding="utf-8") as f:
+    with open(os.path.join(DATA_DIR, fname), "w") as f:
         json.dump(data, f, indent=2)
+    return jsonify({"status": "saved", "file": fname})
 
-    return jsonify({"status": "ok", "saved": filename})
+@app.route("/free")
+def free():
+    if os.path.exists(FREE_FILE):
+        return jsonify(json.load(open(FREE_FILE)))
+    return jsonify({"error": "no data"}), 404
+
+@app.route("/pro")
+def pro():
+    if os.path.exists(PRO_FILE):
+        return jsonify(json.load(open(PRO_FILE)))
+    return jsonify({"error": "no data"}), 404
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
