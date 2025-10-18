@@ -17,6 +17,7 @@ def home():
         "message": "PH Arbitrage API live",
         "time": datetime.utcnow().isoformat() + "Z"
     })
+    return send_from_directory(".", "dashboard.html")
 
 @app.route("/upload", methods=["POST"])
 def upload():
