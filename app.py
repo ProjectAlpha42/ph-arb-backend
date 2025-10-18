@@ -6,9 +6,14 @@ from pathlib import Path
 
 app = Flask(__name__)
 
-UPLOAD_KEY = os.getenv("UPLOAD_KEY", "changeme")
+UPLOAD_KEY = os.getenv("UPLOAD_KEY", "SecretSquirel123!")
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
+
+@app.route("/")
+def dashboard():
+    # serve the dashboard.html file from the current directory
+    return send_from_directory(".", "dashboard.html")
 
 @app.route("/", methods=["GET"])
 def home():
