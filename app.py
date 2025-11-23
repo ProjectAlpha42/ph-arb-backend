@@ -5,9 +5,6 @@ from flask import Flask, request, jsonify, send_from_directory
 # Get upload key from environment (Render → Environment variables)
 UPLOAD_KEY = os.environ.get("UPLOAD_KEY")
 
-# Base directory of this file (where we keep dashboard.html + JSON files)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 app = Flask(__name__)
 
 
@@ -15,37 +12,22 @@ app = Flask(__name__)
 
 @app.route("/")
 def dashboard():
-    """
-    Serve the dashboard HTML file.
-    dashboard.html must sit in the same folder as app.py
-    """
-    return send_from_directory(BASE_DIR, "dashboard.html")
+    # Serve dashboard.html from the same folder as this file
+    return send_from_directory(".", "dashboard.html")
 
 
 # ---------- JSON endpoints for the dashboard ----------
 
 @app.route("/free_data.json")
 def free_data_file():
-    """
-    Serve free_data.json so the dashboard JS can fetch it.
-    """
-    path = os.path.join(BASE_DIR, "free_data.json")
-    if not os.path.exists(path):
-        return jsonify({"error": "free_data.json not found"}), 404
-
-    return send_from_directory(BASE_DIR, "free_data.json", mimetype="application/json")
+    # Serve free_data.json from the same folder as this file
+    return send_from_directory(".", "free_data.json", mimetype="application/json")
 
 
 @app.route("/pro_data.json")
 def pro_data_file():
-    """
-    Serve pro_data.json so the dashboard JS can fetch it.
-    """
-    path = os.path.join(BASE_DIR, "pro_data.json")
-    if not os.path.exists(path):
-        return jsonify({"error": "pro_data.json not found"}), 404
-
-    return send_from_directory(BASE_DIR, "pro_data.json", mimetype="application/json")
+    # Serve pro_data.json from the same folder as this file
+    return send_from_directory(".", "pro_data.json", mimetype="application/json")
 
 
 # ---------- Upload endpoint (from your Pi auto_uploader.py) ----------
@@ -54,18 +36,7 @@ def pro_data_file():
 def upload():
     """
     Pi posts JSON with header X-Upload-Key and field "tier": "free" or "pro".
-
-    Example JSON from Pi:
-    {
-        "tier": "free",
-        "source": "Binance P2P",
-        "buy_price_php": 123.456,
-        "sell_price_php": 124.567,
-        "official_usd_php": 58.172,
-        "buy_spread_pct": 0.436,
-        "sell_spread_pct": 0.209,
-        "timestamp_utc": "2025-10-18T03:37:47Z"
-    }
+    The data is saved into free_data.json or pro_data.json in this folder.
     """
     if not UPLOAD_KEY:
         return jsonify({"error": "UPLOAD_KEY not configured on server"}), 500
@@ -83,10 +54,9 @@ def upload():
         return jsonify({"error": "Invalid tier; must be 'free' or 'pro'"}), 400
 
     filename = "free_data.json" if tier == "free" else "pro_data.json"
-    out_path = os.path.join(BASE_DIR, filename)
 
     try:
-        with open(out_path, "w", encoding="utf-8") as f:
+        with open(filename, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)
     except Exception as e:
         return jsonify({"error": f"Failed to write file: {e}"}), 500
@@ -94,7 +64,7 @@ def upload():
     return jsonify({"status": "ok", "tier": tier, "file": filename})
 
 
-# ---------- Health check (optional, but nice for Render) ----------
+# ---------- Health check ----------
 
 @app.route("/health")
 def health():
