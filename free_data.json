@@ -1,0 +1,10 @@
+{
+  "tier": "free",
+  "source": "Binance P2P",
+  "buy_price_php": 0.0,
+  "sell_price_php": 0.0,
+  "official_usd_php": 58.172,
+  "buy_spread_pct": 0.0,
+  "sell_spread_pct": 0.0,
+  "timestamp_utc": "2025-01-01T00:00:00Z"
+}
