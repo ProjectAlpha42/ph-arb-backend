@@ -1,112 +1,106 @@
 import os
 import json
-from datetime import datetime
-from pathlib import Path
+from flask import Flask, request, jsonify, send_from_directory
 
-from flask import Flask, request, jsonify, send_from_directory, abort
+# Get upload key from environment (Render → Environment variables)
+UPLOAD_KEY = os.environ.get("UPLOAD_KEY")
+
+# Base directory of this file (where we keep dashboard.html + JSON files)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = Flask(__name__)
 
-# Folder to store uploaded JSON data
-DATA_DIR = Path("data")
-DATA_DIR.mkdir(exist_ok=True)
 
-# Secret upload key (must match what your Pi uses as X-API-Key)
-UPLOAD_KEY = os.getenv("UPLOAD_KEY", "changeme")
+# ---------- Dashboard ----------
 
-
-# -------------------------
-# Public routes
-# -------------------------
-
-@app.route("/", methods=["GET"])
+@app.route("/")
 def dashboard():
     """
-    Public dashboard page.
-    For now this is open; later we can add login/paid gating.
+    Serve the dashboard HTML file.
+    dashboard.html must sit in the same folder as app.py
     """
-    return send_from_directory(".", "dashboard.html")
+    return send_from_directory(BASE_DIR, "dashboard.html")
 
 
-@app.route("/status", methods=["GET"])
-def status():
+# ---------- JSON endpoints for the dashboard ----------
+
+@app.route("/free_data.json")
+def free_data_file():
     """
-    Simple JSON status endpoint (good for debugging or uptime checks).
+    Serve free_data.json so the dashboard JS can fetch it.
     """
-    return jsonify(
-        {
-            "status": "ok",
-            "message": "PH Arbitrage API live",
-            "time": datetime.utcnow().isoformat() + "Z",
-        }
-    )
+    path = os.path.join(BASE_DIR, "free_data.json")
+    if not os.path.exists(path):
+        return jsonify({"error": "free_data.json not found"}), 404
+
+    return send_from_directory(BASE_DIR, "free_data.json", mimetype="application/json")
 
 
-@app.route("/data/<path:filename>", methods=["GET"])
-def get_data(filename):
+@app.route("/pro_data.json")
+def pro_data_file():
     """
-    Serve stored JSON data (free_data.json, pro_data.json, etc.).
-    This is what the dashboard fetches.
+    Serve pro_data.json so the dashboard JS can fetch it.
     """
-    filepath = DATA_DIR / filename
-    if not filepath.exists():
-        return jsonify({"error": "file not found"}), 404
+    path = os.path.join(BASE_DIR, "pro_data.json")
+    if not os.path.exists(path):
+        return jsonify({"error": "pro_data.json not found"}), 404
 
-    try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return jsonify(data)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return send_from_directory(BASE_DIR, "pro_data.json", mimetype="application/json")
 
 
-@app.route("/list", methods=["GET"])
-def list_files():
-    """
-    List JSON files currently stored in the data folder.
-    """
-    files = [p.name for p in DATA_DIR.glob("*.json")]
-    return jsonify({"files": files})
-
-
-# -------------------------
-# Private upload endpoint (Pi → backend)
-# -------------------------
+# ---------- Upload endpoint (from your Pi auto_uploader.py) ----------
 
 @app.route("/upload", methods=["POST"])
 def upload():
     """
-    Pi calls this with X-API-Key and JSON body:
+    Pi posts JSON with header X-Upload-Key and field "tier": "free" or "pro".
+
+    Example JSON from Pi:
     {
-        "filename": "free_data.json" or "pro_data.json",
-        "data": { ... }
+        "tier": "free",
+        "source": "Binance P2P",
+        "buy_price_php": 123.456,
+        "sell_price_php": 124.567,
+        "official_usd_php": 58.172,
+        "buy_spread_pct": 0.436,
+        "sell_spread_pct": 0.209,
+        "timestamp_utc": "2025-10-18T03:37:47Z"
     }
     """
-    key = request.headers.get("X-API-Key")
-    if key != UPLOAD_KEY:
-        return jsonify({"error": "unauthorized"}), 403
+    if not UPLOAD_KEY:
+        return jsonify({"error": "UPLOAD_KEY not configured on server"}), 500
 
-    content = request.get_json(silent=True)
-    if not content or "filename" not in content or "data" not in content:
-        return jsonify({"error": "invalid payload"}), 400
+    provided_key = request.headers.get("X-Upload-Key")
+    if not provided_key or provided_key != UPLOAD_KEY:
+        return jsonify({"error": "Unauthorized"}), 401
 
-    filename = content["filename"]
-    filepath = DATA_DIR / filename
+    payload = request.get_json(force=True, silent=True)
+    if not payload:
+        return jsonify({"error": "No JSON payload"}), 400
+
+    tier = payload.get("tier", "free")
+    if tier not in ("free", "pro"):
+        return jsonify({"error": "Invalid tier; must be 'free' or 'pro'"}), 400
+
+    filename = "free_data.json" if tier == "free" else "pro_data.json"
+    out_path = os.path.join(BASE_DIR, filename)
 
     try:
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(content["data"], f, indent=2)
-        print(f"✅ Saved {filename} at {datetime.utcnow().isoformat()}Z")
-        return jsonify({"status": "success", "filename": filename}), 200
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Failed to write file: {e}"}), 500
+
+    return jsonify({"status": "ok", "tier": tier, "file": filename})
 
 
-# -------------------------
-# Entry point for local dev / gunicorn
-# -------------------------
+# ---------- Health check (optional, but nice for Render) ----------
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok"})
+
 
 if __name__ == "__main__":
-    # For local testing; Render uses gunicorn with app:app
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    # Local dev only; Render will run via gunicorn
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
